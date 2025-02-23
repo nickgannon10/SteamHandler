@@ -1,0 +1,13 @@
+[app]
+# Example non-secret config parameters
+raydium_liquidity_pool_v4 = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+some_other_id = "EXAMPLE_ID"
+
+[shyft]
+endpoint = "https://grpc.ny.shyft.to"
+x_token = "my-not-secret-token"
+commitment_level = "processed"
+
+[database]
+url = "postgres://myuser:mypass@localhost:5432/mysuperdb"
+max_connections = 5
