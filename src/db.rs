@@ -1,5 +1,7 @@
-use sqlx::{Pool, Postgres, postgres::PgPoolOptions, Executor};
+use sqlx::{Pool, Postgres, postgres::PgPoolOptions, Executor, postgres::PgQueryAs};
 use anyhow::Result;
+use serde_json::Value;
+
 
 pub struct Database {
     pub pool: Pool<Postgres>,
@@ -18,19 +20,64 @@ impl Database {
         Ok(db)
     }
 
-    /// Initialize the database schema.
     async fn initialize(&self) -> Result<()> {
         let create_table_query = r#"
-            CREATE TABLE IF NOT EXISTS RaydiumLPV4 (
+            CREATE TABLE IF NOT EXISTS liquidity_pools (
                 id SERIAL PRIMARY KEY,
                 signature TEXT NOT NULL,
                 pool_address TEXT NOT NULL,
-                is_vote BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                token_mint TEXT NOT NULL,
+                raw_transaction JSONB NOT NULL,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                death_reason TEXT DEFAULT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             );
         "#;
-
+    
         self.pool.execute(create_table_query).await?;
         Ok(())
     }
+
+    pub async fn insert_pool(
+        &self,
+        signature: &str,
+        pool_address: &str,
+        token_mint: &str,
+        raw_tx: &Value,  // JSONB
+    ) -> Result<()> {
+        sqlx::query!(
+            r#"
+            INSERT INTO liquidity_pools 
+                (signature, pool_address, token_mint, raw_transaction, is_active, death_reason)
+            VALUES 
+                ($1, $2, $3, $4, TRUE, NULL)
+            "#,
+            signature,
+            pool_address,
+            token_mint,
+            raw_tx
+        )
+        .execute(&self.pool)
+        .await?;
+        
+        Ok(())
+    } 
+
+    pub async fn mark_pool_as_inactive(&self, pool_address: &str, reason: &str) -> Result<()> {
+        sqlx::query!(
+            r#"
+            UPDATE liquidity_pools
+            SET is_active = FALSE,
+                death_reason = $1
+            WHERE pool_address = $2
+            "#,
+            reason,
+            pool_address
+        )
+        .execute(&self.pool)
+        .await?;
+    
+        Ok(())
+    }
+    
 }
