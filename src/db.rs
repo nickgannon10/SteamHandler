@@ -22,7 +22,7 @@ impl Database {
 
     async fn initialize(&self) -> Result<()> {
         let create_table_query = r#"
-            CREATE TABLE IF NOT EXISTS liquidity_pools (
+            CREATE TABLE IF NOT EXISTS liquidity_pools_v4 (
                 id SERIAL PRIMARY KEY,
                 signature TEXT NOT NULL,
                 pool_address TEXT NOT NULL,
@@ -47,7 +47,7 @@ impl Database {
     ) -> Result<()> {
         sqlx::query!(
             r#"
-            INSERT INTO liquidity_pools 
+            INSERT INTO liquidity_pools_v4 
                 (signature, pool_address, token_mint, raw_transaction, is_active, death_reason)
             VALUES 
                 ($1, $2, $3, $4, TRUE, NULL)
@@ -66,7 +66,7 @@ impl Database {
     pub async fn mark_pool_as_inactive(&self, pool_address: &str, reason: &str) -> Result<()> {
         sqlx::query!(
             r#"
-            UPDATE liquidity_pools
+            UPDATE liquidity_pools_v4
             SET is_active = FALSE,
                 death_reason = $1
             WHERE pool_address = $2
