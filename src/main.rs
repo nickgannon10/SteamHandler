@@ -1,8 +1,9 @@
 // src/main.rs
-mod db;
 mod config;
-mod orchestrator;
+mod connection;
+mod db;
 mod monitors;
+mod orchestrator;
 
 use config::Settings;
 use db::Database;
@@ -12,9 +13,8 @@ use anyhow::Result;
 use env_logger;
 use log::info;
 use orchestrator::Orchestrator;
-use tokio::main;
 
-#[main]
+#[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
     env_logger::init();
@@ -29,8 +29,8 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    // Initialize the orchestrator
-    let mut orchestrator = Orchestrator::new(database);
+    // Initialize the orchestrator with connection manager
+    let mut orchestrator = Orchestrator::new(database, &settings).await?;
     
     // Set up the Raydium V4 monitor
     orchestrator.setup_raydium_v4_monitor(&settings).await?;
