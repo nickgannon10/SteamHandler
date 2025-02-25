@@ -1,5 +1,4 @@
-// src/monitors/raydium_v4.rs
-#![allow(unused_variables)] // Temporary, remove when finalizing
+// Improved raydium_v4.rs implementation
 use {
     anyhow::{Context, Result},
     backoff::{future::retry, ExponentialBackoff},
@@ -32,6 +31,8 @@ pub struct RaydiumV4PoolEvent {
     pub raw_logs: Vec<String>,
 }
 
+// Explicitly derive Clone to be clear about the intent
+#[derive(Clone)]
 pub struct RaydiumV4Monitor {
     endpoint: String,
     x_token: String,
@@ -80,7 +81,7 @@ impl RaydiumV4Monitor {
                 vote: None,
                 failed: Some(false),
                 signature: None,
-                account_include: vec![self.program_id.to_string()],
+                account_include: vec![self.program_id.clone()],
                 account_exclude: vec![],
                 account_required: vec![],
             },
@@ -157,7 +158,7 @@ impl RaydiumV4Monitor {
 
     async fn subscribe_to_geyser(
         &self,
-        mut client: GeyserGrpcClient<impl Interceptor>, // Add 'mut' here
+        mut client: GeyserGrpcClient<impl Interceptor>,
         request: SubscribeRequest,
         mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
     ) -> Result<()> {
@@ -166,7 +167,7 @@ impl RaydiumV4Monitor {
 
         loop {
             tokio::select! {
-                // Check for shutdown signal - this syntax changes slightly
+                // Check for shutdown signal
                 Ok(_) = shutdown_rx.recv() => {
                     info!("Shutdown signal received for Raydium V4 monitor");
                     break;
@@ -229,9 +230,23 @@ impl RaydiumV4Monitor {
         info!("Starting Raydium V4 monitor");
         let zero_attempts = Arc::new(Mutex::new(true));
 
+        // Copy the data needed for the closures
+        let endpoint = self.endpoint.clone();
+        let x_token = self.x_token.clone();
+        let program_id = self.program_id.clone();
+        let migration_pubkey = self.migration_pubkey.clone();
+        let database = Arc::clone(&self.database);
+        let event_tx = self.event_tx.clone();
+
         // The default exponential backoff strategy for reconnections
         retry(ExponentialBackoff::default(), move || {
-            let self_clone = self.clone();
+            // Clone only what's needed without cloning the entire monitor
+            let endpoint = endpoint.clone();
+            let x_token = x_token.clone();
+            let program_id = program_id.clone();
+            let migration_pubkey = migration_pubkey.clone();
+            let database = Arc::clone(&database);
+            let event_tx = event_tx.clone();
             let mut shutdown_rx_clone = shutdown_rx.resubscribe();
             let zero_attempts = Arc::clone(&zero_attempts);
 
@@ -244,14 +259,25 @@ impl RaydiumV4Monitor {
                 }
                 drop(zero_attempts);
 
-                let client = self_clone.connect().await.map_err(backoff::Error::transient)?;
+                // Create a temporary monitor with cloned values for this retry attempt
+                let temp_monitor = RaydiumV4Monitor::new(
+                    endpoint.clone(),
+                    x_token.clone(),
+                    program_id.clone(),
+                    migration_pubkey.clone(),
+                    Arc::clone(&database),
+                    event_tx.clone(),
+                );
+
+                // Use the temporary monitor
+                let client = temp_monitor.connect().await.map_err(backoff::Error::transient)?;
                 info!("Connected to gRPC server for Raydium V4 monitor");
 
-                let request = self_clone
+                let request = temp_monitor
                     .get_subscribe_request()
                     .map_err(backoff::Error::Permanent)?;
 
-                self_clone
+                temp_monitor
                     .subscribe_to_geyser(client, request, shutdown_rx_clone)
                     .await
                     .map_err(backoff::Error::transient)?;
@@ -362,18 +388,4 @@ fn extract_pool_address_mint_and_signers(
     }
 
     Ok((pool_address, minted_token, signers))
-}
-
-// Implement Clone for RaydiumV4Monitor
-impl Clone for RaydiumV4Monitor {
-    fn clone(&self) -> Self {
-        Self {
-            endpoint: self.endpoint.clone(),
-            x_token: self.x_token.clone(),
-            program_id: self.program_id.clone(),
-            migration_pubkey: self.migration_pubkey.clone(),
-            database: Arc::clone(&self.database),
-            event_tx: self.event_tx.clone(),
-        }
-    }
 }

@@ -1,4 +1,4 @@
-// src/orchestrator.rs
+// Improved orchestrator.rs implementation
 use anyhow::Result;
 use log::{error, info};
 use std::sync::Arc;
@@ -12,8 +12,7 @@ use crate::monitors::raydium_v4::{RaydiumV4Monitor, RaydiumV4PoolEvent};
 pub struct Orchestrator {
     database: Arc<Database>,
     monitor_handles: Vec<JoinHandle<()>>,
-    shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>, // Change type here
-    // Channels for each monitor type
+    shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
     raydium_v4_tx: Option<mpsc::Sender<RaydiumV4PoolEvent>>,
 }
 
@@ -27,7 +26,7 @@ impl Orchestrator {
         }
     }
 
-    // Updating the handle_raydium_v4_event method to insert pool data
+    // Use &self instead of self since we're only reading the database
     async fn handle_raydium_v4_event(&self, event: RaydiumV4PoolEvent) -> Result<()> {
         info!(
             "CALLBACK: initialize2 found! signature={}, pool={:?}, mint={:?}, signers={:?}",
@@ -71,21 +70,45 @@ impl Orchestrator {
         self.shutdown_tx = Some(shutdown_tx.clone());
         let shutdown_rx = shutdown_tx.subscribe();
         
-        
         // Create event channel for callbacks
         let (event_tx, mut event_rx) = mpsc::channel::<RaydiumV4PoolEvent>(100);
         self.raydium_v4_tx = Some(event_tx.clone());
         
-        // Clone database for the callback processor
-        let db = Arc::clone(&self.database);
-        let orchestrator_self = Arc::new(self.clone());
+        // Create shared data for the event handler
+        // Clone only what's needed for the handler, not the entire self
+        let db_for_handler = Arc::clone(&self.database);
         
         // Spawn a task to process events
         let event_handle = tokio::spawn(async move {
             info!("Raydium V4 event processor started");
             while let Some(event) = event_rx.recv().await {
-                if let Err(e) = orchestrator_self.handle_raydium_v4_event(event).await {
-                    error!("Error processing Raydium V4 event: {}", e);
+                // Process event directly in the closure
+                // This avoids the need to move `self` into the closure
+                let signature = &event.signature;
+                
+                if let (Some(pool_address), Some(mint_address)) = (&event.pool_address, &event.mint_address) {
+                    // Create JSON representation
+                    let raw_tx = serde_json::json!({
+                        "signature": event.signature,
+                        "pool_address": pool_address,
+                        "mint_address": mint_address,
+                        "signers": event.signers,
+                        "timestamp": event.timestamp,
+                        "logs": event.raw_logs
+                    });
+                    
+                    // Insert into database
+                    match db_for_handler.insert_pool(
+                        signature,
+                        pool_address,
+                        mint_address,
+                        &raw_tx
+                    ).await {
+                        Ok(_) => info!("Successfully inserted new pool: {}", pool_address),
+                        Err(e) => error!("Failed to insert pool {}: {}", pool_address, e)
+                    }
+                } else {
+                    error!("Missing pool_address or mint_address in event: {}", signature);
                 }
             }
             info!("Raydium V4 event processor stopped");
@@ -94,13 +117,14 @@ impl Orchestrator {
         self.monitor_handles.push(event_handle);
         
         // Initialize the Raydium V4 monitor
+        // No need to clone the database reference again
         let raydium_monitor = RaydiumV4Monitor::new(
             settings.shyft.endpoint.clone(),
-            settings.shyft.x_token.clone(),
+            settings.shyft.x_token.clone(), 
             settings.transaction_monitor.program_id.clone(),
             settings.transaction_monitor.migration_pubkey.clone(),
             Arc::clone(&self.database),
-            event_tx, // Pass the event sender channel
+            event_tx,
         );
         
         // Spawn the monitor in its own task
@@ -114,16 +138,6 @@ impl Orchestrator {
         self.monitor_handles.push(handle);
         
         Ok(())
-    }
-    
-    // Add Clone implementation for Orchestrator
-    pub fn clone(&self) -> Self {
-        Self {
-            database: Arc::clone(&self.database),
-            monitor_handles: Vec::new(), // Don't clone handles
-            shutdown_tx: None, // Don't clone shutdown channel
-            raydium_v4_tx: self.raydium_v4_tx.clone(),
-        }
     }
     
     pub async fn run(mut self) -> Result<()> {
@@ -168,7 +182,6 @@ impl Orchestrator {
         Ok(())
     }
     
-    // Add a new method to mark all active pools as inactive
     async fn mark_all_pools_inactive(&self, reason: &str) -> Result<i64> {
         // We'll create a new method in the Database struct to handle this operation
         self.database.mark_all_pools_inactive(reason).await
