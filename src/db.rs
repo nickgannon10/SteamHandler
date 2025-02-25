@@ -63,21 +63,21 @@ impl Database {
         Ok(())
     } 
 
-    pub async fn mark_pool_as_inactive(&self, pool_address: &str, reason: &str) -> Result<()> {
-        sqlx::query!(
+    pub async fn mark_all_pools_inactive(&self, reason: &str) -> Result<i64> {
+        let result = sqlx::query!(
             r#"
             UPDATE liquidity_pools_v4
             SET is_active = FALSE,
                 death_reason = $1
-            WHERE pool_address = $2
+            WHERE is_active = TRUE
             "#,
-            reason,
-            pool_address
+            reason
         )
         .execute(&self.pool)
         .await?;
-    
-        Ok(())
+        
+        // Return the number of rows affected
+        Ok(result.rows_affected() as i64)
     }
     
 }

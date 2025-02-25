@@ -26,21 +26,39 @@ impl Orchestrator {
             raydium_v4_tx: None,
         }
     }
-    
-    // Callback for processing Raydium V4 pool events
+
+    // Updating the handle_raydium_v4_event method to insert pool data
     async fn handle_raydium_v4_event(&self, event: RaydiumV4PoolEvent) -> Result<()> {
         info!(
             "CALLBACK: initialize2 found! signature={}, pool={:?}, mint={:?}, signers={:?}",
             event.signature, event.pool_address, event.mint_address, event.signers
         );
         
-        // Additional business logic can be added here
-        // For example, storing in the database:
-        // self.database.store_raydium_pool(&event).await?;
-        
-        // Or triggering other business processes:
-        // self.notify_admins(&event).await?;
-        // self.analyze_market_impact(&event).await?;
+        // Extract pool_address and mint_address
+        if let (Some(pool_address), Some(mint_address)) = (&event.pool_address, &event.mint_address) {
+            // Create a JSON representation of the event for the raw_transaction field
+            let raw_tx = serde_json::json!({
+                "signature": event.signature,
+                "pool_address": pool_address,
+                "mint_address": mint_address,
+                "signers": event.signers,
+                "timestamp": event.timestamp,
+                "logs": event.raw_logs
+            });
+            
+            // Insert the pool data into the database
+            match self.database.insert_pool(
+                &event.signature,
+                pool_address,
+                mint_address,
+                &raw_tx
+            ).await {
+                Ok(_) => info!("Successfully inserted new pool: {}", pool_address),
+                Err(e) => error!("Failed to insert pool {}: {}", pool_address, e)
+            }
+        } else {
+            error!("Missing pool_address or mint_address in event: {}", event.signature);
+        }
         
         Ok(())
     }
@@ -116,6 +134,13 @@ impl Orchestrator {
         
         info!("Shutdown signal received, stopping monitors...");
         
+        // Mark all active pools as inactive with "control+c" reason
+        info!("Marking all active pools as inactive...");
+        match self.mark_all_pools_inactive("control+c").await {
+            Ok(count) => info!("Marked {} pools as inactive", count),
+            Err(e) => error!("Failed to mark pools as inactive: {}", e)
+        }
+        
         // First, drop all event senders to terminate event processor tasks
         self.raydium_v4_tx = None;
         
@@ -141,5 +166,11 @@ impl Orchestrator {
         info!("All monitors stopped, shutting down gracefully");
         
         Ok(())
+    }
+    
+    // Add a new method to mark all active pools as inactive
+    async fn mark_all_pools_inactive(&self, reason: &str) -> Result<i64> {
+        // We'll create a new method in the Database struct to handle this operation
+        self.database.mark_all_pools_inactive(reason).await
     }
 }
