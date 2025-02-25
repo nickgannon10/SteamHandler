@@ -1,12 +1,21 @@
 [app]
 # Example non-secret config parameters
 raydium_liquidity_pool_v4 = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
-some_other_id = "EXAMPLE_ID"
 
 [shyft]
 endpoint = "https://grpc.ny.shyft.to"
 x_token = "my-not-secret-token"
 commitment_level = "processed"
+
+[transaction_monitor]
+# Program ID to monitor (same as Raydium V4 in this case)
+program_id = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+# The migration pubkey that needs to be a signer
+migration_pubkey = "39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg"
+# Enable filtering for initialize2 in transaction logs
+filter_initialize2 = true
+# Enable filtering for specific signer (migration_pubkey)
+filter_specific_signer = true
 
 [database]
 url = "postgres://myuser:mypass@localhost:5432/mysuperdb"

@@ -1,4 +1,4 @@
-use sqlx::{Pool, Postgres, postgres::PgPoolOptions, Executor, postgres::PgQueryAs};
+use sqlx::{Pool, Postgres, postgres::PgPoolOptions, Executor};
 use anyhow::Result;
 use serde_json::Value;
 

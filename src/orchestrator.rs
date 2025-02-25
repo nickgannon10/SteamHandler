@@ -1,52 +1,145 @@
 // src/orchestrator.rs
 use anyhow::Result;
-use log::info;
-use tokio::sync::mpsc::{self, UnboundedReceiver};
-use yellowstone_grpc_proto::prelude::SubscribeUpdateTransactionInfo;
+use log::{error, info};
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
+use tokio::task::JoinHandle;
 
-use crate::listener::RaydiumListener;
+use crate::config::Settings;
+use crate::db::Database;
+use crate::monitors::raydium_v4::{RaydiumV4Monitor, RaydiumV4PoolEvent};
 
 pub struct Orchestrator {
-    // We hold the listener if we wish, or we can store config values and reconstruct as needed
-    listener: RaydiumListener,
-    // The receiving side of messages from the listener
-    rx: UnboundedReceiver<SubscribeUpdateTransactionInfo>,
+    database: Arc<Database>,
+    monitor_handles: Vec<JoinHandle<()>>,
+    shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>, // Change type here
+    // Channels for each monitor type
+    raydium_v4_tx: Option<mpsc::Sender<RaydiumV4PoolEvent>>,
 }
 
 impl Orchestrator {
-    pub fn new(endpoint: String, x_token: String, program_id: String) -> Self {
-        // Build channel
-        let (tx, rx) = mpsc::unbounded_channel();
+    pub fn new(database: Database) -> Self {
+        Self {
+            database: Arc::new(database),
+            monitor_handles: Vec::new(),
+            shutdown_tx: None,
+            raydium_v4_tx: None,
+        }
+    }
+    
+    // Callback for processing Raydium V4 pool events
+    async fn handle_raydium_v4_event(&self, event: RaydiumV4PoolEvent) -> Result<()> {
+        info!(
+            "CALLBACK: initialize2 found! signature={}, pool={:?}, mint={:?}, signers={:?}",
+            event.signature, event.pool_address, event.mint_address, event.signers
+        );
         
-        // Build the listener with the sending half
-        let listener = RaydiumListener::new(endpoint, x_token, program_id, tx);
+        // Additional business logic can be added here
+        // For example, storing in the database:
+        // self.database.store_raydium_pool(&event).await?;
         
-        Self { listener, rx }
+        // Or triggering other business processes:
+        // self.notify_admins(&event).await?;
+        // self.analyze_market_impact(&event).await?;
+        
+        Ok(())
     }
 
-    pub async fn run(mut self) -> Result<()> {
-        // 1) We can either run the listener in a background task, or inline.
-        //    Here we do it in a background task so we can simultaneously process messages from rx.
-
-        let mut listener_clone = self.listener;
-        let listener_task = tokio::spawn(async move {
-            if let Err(e) = listener_clone.run().await {
-                eprintln!("Listener encountered error: {:?}", e);
+    pub async fn setup_raydium_v4_monitor(&mut self, settings: &Settings) -> Result<()> {
+        info!("Setting up Raydium V4 monitor...");
+        
+        // Create shutdown channel
+        let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
+        self.shutdown_tx = Some(shutdown_tx.clone());
+        let shutdown_rx = shutdown_tx.subscribe();
+        
+        
+        // Create event channel for callbacks
+        let (event_tx, mut event_rx) = mpsc::channel::<RaydiumV4PoolEvent>(100);
+        self.raydium_v4_tx = Some(event_tx.clone());
+        
+        // Clone database for the callback processor
+        let db = Arc::clone(&self.database);
+        let orchestrator_self = Arc::new(self.clone());
+        
+        // Spawn a task to process events
+        let event_handle = tokio::spawn(async move {
+            info!("Raydium V4 event processor started");
+            while let Some(event) = event_rx.recv().await {
+                if let Err(e) = orchestrator_self.handle_raydium_v4_event(event).await {
+                    error!("Error processing Raydium V4 event: {}", e);
+                }
+            }
+            info!("Raydium V4 event processor stopped");
+        });
+        
+        self.monitor_handles.push(event_handle);
+        
+        // Initialize the Raydium V4 monitor
+        let raydium_monitor = RaydiumV4Monitor::new(
+            settings.shyft.endpoint.clone(),
+            settings.shyft.x_token.clone(),
+            settings.transaction_monitor.program_id.clone(),
+            settings.transaction_monitor.migration_pubkey.clone(),
+            Arc::clone(&self.database),
+            event_tx, // Pass the event sender channel
+        );
+        
+        // Spawn the monitor in its own task
+        let handle = tokio::spawn(async move {
+            match raydium_monitor.run(shutdown_rx).await {
+                Ok(_) => info!("Raydium V4 monitor completed successfully"),
+                Err(e) => error!("Raydium V4 monitor error: {}", e),
             }
         });
-
-        // 2) Meanwhile, we (Orchestrator) read from the channel to react to events
-        while let Some(tx_info) = self.rx.recv().await {
-            // In the future, we might parse logs, check for "initialize2", etc.
-            // For now, we simply log that we've received a transaction.
-            info!("Orchestrator: Received a transaction update from the listener.");
-
-            // Perhaps we’d parse the logs or signature to do something more interesting.
-            // For demonstration, we do nothing further.
+        
+        self.monitor_handles.push(handle);
+        
+        Ok(())
+    }
+    
+    // Add Clone implementation for Orchestrator
+    pub fn clone(&self) -> Self {
+        Self {
+            database: Arc::clone(&self.database),
+            monitor_handles: Vec::new(), // Don't clone handles
+            shutdown_tx: None, // Don't clone shutdown channel
+            raydium_v4_tx: self.raydium_v4_tx.clone(),
         }
-
-        // If the channel closes, or an error occurs, join the listener task
-        let _ = listener_task.await;
+    }
+    
+    pub async fn run(mut self) -> Result<()> {
+        info!("All monitors started. Press Ctrl+C to stop...");
+        
+        // Wait for Ctrl+C
+        tokio::signal::ctrl_c().await?;
+        
+        info!("Shutdown signal received, stopping monitors...");
+        
+        // First, drop all event senders to terminate event processor tasks
+        self.raydium_v4_tx = None;
+        
+        // Then send shutdown signal to all monitors
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+            // Explicitly drop the sender to ensure all receivers get notified
+            drop(tx);
+        }
+        
+        // Wait for all handles to complete with a timeout
+        let shutdown_timeout = tokio::time::Duration::from_secs(5);
+        for handle in self.monitor_handles {
+            match tokio::time::timeout(shutdown_timeout, handle).await {
+                Ok(_) => {},
+                Err(_) => {
+                    error!("Timeout waiting for task to complete, forcing shutdown");
+                    // We've given up waiting
+                }
+            }
+        }
+        
+        info!("All monitors stopped, shutting down gracefully");
+        
         Ok(())
     }
 }

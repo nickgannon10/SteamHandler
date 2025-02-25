@@ -10,6 +10,7 @@ Substantia Nigra: A Consciousness Research Fund
 - create a global connection manager
 - add something like 1) both created at's and 2) delta between created at and global inserts
 - things like group inserts accross all files
+- env_logger::init() enables structured logging, which can be controlled with RUST_LOG
 
 # Commands:
 
