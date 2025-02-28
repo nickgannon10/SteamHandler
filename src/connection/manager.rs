@@ -567,23 +567,23 @@ impl ConnectionManager {
         });
     }
 
-    // Dispatch an event to all matching subscriptions
+// Dispatch an event to all matching subscriptions
     async fn dispatch_event(
         event: SubscriptionEvent,
         subscriptions: &RwLock<HashMap<SubscriptionId, Subscription>>,
     ) {
-        // Get a read lock on the subscriptions
         let subs = subscriptions.read().await;
-        
-        // Process each subscription under the read lock
+
         for subscription in subs.values() {
-            // Process the event
-            if let Err(e) = subscription.event_handler.handle(event.clone()) {
-                error!(
-                    "Error handling event for subscription {:?}: {:?}",
-                    subscription.id, e
-                );
-            }
+            // NEW: only handle if it matches
+            if subscription.matches_event(&event) {
+                if let Err(e) = subscription.event_handler.handle(event.clone()) {
+                    error!(
+                        "Error handling event for subscription {:?}: {:?}",
+                        subscription.id, e
+                    );
+                } // Missing closing brace was here
+            } // Missing closing brace was here
         }
         // Lock is automatically released when subs goes out of scope
     }

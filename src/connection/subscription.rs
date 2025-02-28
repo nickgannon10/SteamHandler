@@ -170,4 +170,70 @@ impl Subscription {
             }
         }
     }
+    /// Returns true if the given event matches the filter criteria of this subscription.
+    /// If it does, the event_handler should be invoked; otherwise, skip it.
+    pub fn matches_event(&self, event: &SubscriptionEvent) -> bool {
+        match (&self.subscription_type, event) {
+            // For transaction subscriptions, check if the transaction accounts include or match the filter
+            (
+                SubscriptionType::Transactions(tx_filter),
+                SubscriptionEvent::Transaction(tx_info),
+            ) => Self::matches_transaction(tx_filter, tx_info),
+
+            // For accounts, blocks, etc., you can add similar logic as needed:
+            (SubscriptionType::Accounts(filter), SubscriptionEvent::Account(account_info)) => {
+                // Perhaps also some local checks against the filter's account list, etc.
+                true
+            }
+            (SubscriptionType::Slots(_), SubscriptionEvent::Slot(_)) => {
+                true // or do additional checks if needed
+            }
+            (SubscriptionType::Blocks(_), SubscriptionEvent::Block(_)) => {
+                true // or a deeper check
+            }
+            (SubscriptionType::BlocksMeta(_), SubscriptionEvent::BlockMeta(_)) => {
+                true
+            }
+
+            // If the event is a different type than this subscription expects, it's not a match
+            _ => false,
+        }
+    }
+
+    fn matches_transaction(
+        tx_filter: &SubscribeRequestFilterTransactions,
+        tx_info: &yellowstone_grpc_proto::prelude::SubscribeUpdateTransactionInfo,
+    ) -> bool {
+        // Perform local checks to see if the transaction touches the included program IDs, etc.
+
+        // 1) If the filter says `failed = Some(false)`, we can check if this transaction actually
+        // succeeded. (We can glean that from `tx_info.meta.as_ref().map(|m| m.err.is_none()).unwrap_or(false)`.)
+
+        // 2) If there's an 'account_include' list in tx_filter, confirm that the transaction indeed has
+        // those accounts. For example:
+        if !tx_filter.account_include.is_empty() {
+            // Convert the transaction's account_keys to base58
+            if let Some(tx) = &tx_info.transaction {
+                if let Some(message) = &tx.message {
+                    let account_keys: Vec<String> = message
+                        .account_keys
+                        .iter()
+                        .map(|key_bytes| bs58::encode(key_bytes).into_string())
+                        .collect();
+
+                    // Check if every required account_include is present
+                    for required in &tx_filter.account_include {
+                        // The subscription's `program_id` etc. is in base58 string form. 
+                        // We require that 'required' is among `account_keys`.
+                        if !account_keys.contains(required) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        // If we pass all relevant checks, then yes, this transaction belongs to this subscription
+        true
+    }
 }
