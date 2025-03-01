@@ -20,3 +20,7 @@ filter_specific_signer = true
 [database]
 url = "postgres://myuser:mypass@localhost:5432/mysuperdb"
 max_connections = 5
+
+[helius]
+api_key = ""
+cluster = "MainnetBeta"
