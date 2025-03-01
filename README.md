@@ -41,7 +41,7 @@ Unlike Python, Rust can actually distribute workers across CPU cores.
 
 # Commands:
 
-> `DATABASE_URL="postgres://mluser:mlpassword@localhost:5432/mldb" cargo run`
+> `RUST_LOG=info DATABASE_URL="postgres://mluser:mlpassword@localhost:5432/mldb" cargo run`
 > I want logs and elastic search in here.
 > log stash?
 

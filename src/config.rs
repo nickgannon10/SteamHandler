@@ -3,6 +3,12 @@ use config::{Config, ConfigError, File, FileFormat};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+pub struct HeliusSettings {
+    pub api_key: String,
+    pub cluster: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AppSettings {
     pub raydium_liquidity_pool_v4: String,
 }
@@ -34,6 +40,7 @@ pub struct Settings {
     pub shyft: ShyftSettings,
     pub transaction_monitor: TransactionMonitorSettings,
     pub database: DatabaseSettings,
+    pub helius: HeliusSettings,
 }
 
 impl Settings {

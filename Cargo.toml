@@ -31,6 +31,7 @@ yellowstone-vixen-core = { git = "https://github.com/rpcpool/yellowstone-vixen" 
 yellowstone-vixen-parser = { git = "https://github.com/rpcpool/yellowstone-vixen", features = ["raydium"] }
 indicatif = "0.17.9"
 config = "0.15.8"
+helius = "0.2.5"
 
 [dev-dependencies]
 sqlx-cli = { version = "0.8.3", features = ["postgres"] }

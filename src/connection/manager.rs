@@ -408,7 +408,6 @@ impl ConnectionManager {
         Ok(())
     }
 
-    // Connect to the gRPC server and set up the subscription
     async fn connect_and_subscribe(
         endpoint: &str,
         x_token: &str,
@@ -423,8 +422,8 @@ impl ConnectionManager {
         // Connect to the server with increased timeouts
         let mut client = GeyserGrpcClient::build_from_shared(endpoint.to_string())?
             .x_token(Some(x_token.to_string()))?
-            .connect_timeout(Duration::from_secs(30))  // Increased from 10 to 30 seconds
-            .timeout(Duration::from_secs(30))          // Increased from 10 to 30 seconds
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(30))
             .tls_config(ClientTlsConfig::new().with_native_roots())?
             .max_decoding_message_size(1024 * 1024 * 1024)
             .connect()
@@ -432,19 +431,24 @@ impl ConnectionManager {
             .context("Failed to establish connection to gRPC server")?;
         
         info!("Successfully connected to gRPC server, setting up subscription");
-
+    
         // Build the initial subscribe request
         let request = Self::build_subscribe_request(&subscriptions).await;
-
-        // Create the subscription
-        let (tx, rx) = client.subscribe_with_request(Some(request)).await
+    
+        // Add a timeout for the subscription creation
+        info!("Creating subscription with server (this may take some time)...");
+        let (tx, rx) = tokio::time::timeout(
+            Duration::from_secs(60),  // Allow up to 60 seconds for subscription
+            client.subscribe_with_request(Some(request))
+        ).await
+            .context("Subscription creation timed out")?
             .context("Failed to create subscription with gRPC server")?;
         
         info!("Subscription created successfully");
-
+    
         // Spawn a task to process the stream
         Self::spawn_stream_processor(rx, subscriptions, stream_event_tx).await;
-
+    
         Ok((client, tx))
     }
 
@@ -567,23 +571,23 @@ impl ConnectionManager {
         });
     }
 
-    // Dispatch an event to all matching subscriptions
+// Dispatch an event to all matching subscriptions
     async fn dispatch_event(
         event: SubscriptionEvent,
         subscriptions: &RwLock<HashMap<SubscriptionId, Subscription>>,
     ) {
-        // Get a read lock on the subscriptions
         let subs = subscriptions.read().await;
-        
-        // Process each subscription under the read lock
+
         for subscription in subs.values() {
-            // Process the event
-            if let Err(e) = subscription.event_handler.handle(event.clone()) {
-                error!(
-                    "Error handling event for subscription {:?}: {:?}",
-                    subscription.id, e
-                );
-            }
+            // NEW: only handle if it matches
+            if subscription.matches_event(&event) {
+                if let Err(e) = subscription.event_handler.handle(event.clone()) {
+                    error!(
+                        "Error handling event for subscription {:?}: {:?}",
+                        subscription.id, e
+                    );
+                } // Missing closing brace was here
+            } // Missing closing brace was here
         }
         // Lock is automatically released when subs goes out of scope
     }

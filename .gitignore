@@ -10,6 +10,8 @@ target/
 *.pdb
 
 .env
+.env.test
+
 
 .cursor/
 .cursorignore

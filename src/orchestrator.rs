@@ -31,41 +31,6 @@ impl Orchestrator {
         })
     }
 
-    async fn handle_raydium_v4_event(&self, event: RaydiumV4PoolEvent) -> Result<()> {
-        info!(
-            "Processing Raydium V4 event: signature={}, pool={:?}, mint={:?}",
-            event.signature, event.pool_address, event.mint_address
-        );
-        
-        // Extract pool_address and mint_address
-        if let (Some(pool_address), Some(mint_address)) = (&event.pool_address, &event.mint_address) {
-            // Create a JSON representation of the event for the raw_transaction field
-            let raw_tx = serde_json::json!({
-                "signature": event.signature,
-                "pool_address": pool_address,
-                "mint_address": mint_address,
-                "signers": event.signers,
-                "timestamp": event.timestamp,
-                "logs": event.raw_logs
-            });
-            
-            // Insert the pool data into the database
-            match self.database.insert_pool(
-                &event.signature,
-                pool_address,
-                mint_address,
-                &raw_tx
-            ).await {
-                Ok(_) => info!("Successfully inserted new pool: {}", pool_address),
-                Err(e) => error!("Failed to insert pool {}: {}", pool_address, e)
-            }
-        } else {
-            error!("Missing pool_address or mint_address in event: {}", event.signature);
-        }
-        
-        Ok(())
-    }
-
     pub async fn setup_raydium_v4_monitor(&mut self, settings: &Settings) -> Result<()> {
         info!("Setting up Raydium V4 monitor...");
         
