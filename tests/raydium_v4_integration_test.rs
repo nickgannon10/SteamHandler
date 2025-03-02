@@ -451,10 +451,10 @@ async fn test_raydium_v4_monitor_with_helius_transactions() -> Result<()> {
         println!("⚠️ WARNING: No transactions were successfully injected for testing");
     }
 
-    // 11. Clean up
-    println!("\nStep 11: Cleaning up...");
-    cleanup_test_database(&db.pool).await?;
-    println!("✓ Test database cleaned");
+    // 11. Skip cleanup to allow manual inspection of the database
+    println!("\nStep 11: Skipping database cleanup as requested...");
+    println!("✓ Test complete - database left intact for manual inspection");
+    println!("\nNOTE: Don't forget to clean up the database manually when finished!");
     
     println!("\n========== TEST COMPLETE ==========\n");
     Ok(())
