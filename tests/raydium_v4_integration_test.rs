@@ -101,11 +101,11 @@ async fn helius_tx_to_yellowstone(
     
     // Add accounts in this specific order for proper extraction
     let key_accounts = [
-        migration_pubkey,                // Index 0: Migration pubkey (signer)
-        "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1", // Index 1: Fee payer
-        "DhUo1QwKiNetZnYPAJC89ddTFv7htw1WvGcCNhUCjpkN", // Index 4: Additional account
-        mint_address,                    // Index 3: Mint address - THIS IS THE KEY VALUE
-        pool_address,                    // Index 2: Pool address - THIS IS THE KEY VALUE
+        migration_pubkey,               
+        "", 
+        "", 
+        mint_address,
+        pool_address,
     ];
     
     // Add the main accounts
@@ -118,21 +118,6 @@ async fn helius_tx_to_yellowstone(
     let program_id_bytes = bs58::decode(program_id).into_vec()?;
     account_keys.push(program_id_bytes.clone());
     let program_id_index = account_keys.len() - 1;
-    
-    // Add additional accounts
-    let additional_accounts = [
-        "8V1CSXXXpjyB9VcEE6odCoy3jcrMdcS5PWj8vjgz7ZfD",
-        "kjUUkbLKfbLRQGXwvoeN7uxenMfZhzdrjUG9evsFKWq",
-        "So11111111111111111111111111111111111111112",
-        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-    ];
-    
-    for &acct in &additional_accounts {
-        let acct_bytes = bs58::decode(acct).into_vec()?;
-        if !account_keys.contains(&acct_bytes) {
-            account_keys.push(acct_bytes);
-        }
-    }
     
     println!("  Created account keys array with {} accounts", account_keys.len());
     println!("  Migration pubkey at index 0");
